@@ -1,7 +1,10 @@
 (() => {
   const data = window.PUTNAM_DATA || { problems: [] };
+  const RECENT_KEY = "putnam_recent_ids_v1";
+  const RECENT_MAX = 16;
   let filtered = data.problems.slice().sort((a, b) => b.year - a.year || a.session.localeCompare(b.session) || a.number - b.number);
   let activeId = null;
+  let recentIds = loadRecentIds();
 
   const el = {
     search: document.getElementById("search"),
@@ -12,6 +15,8 @@
     list: document.getElementById("list"),
     detail: document.getElementById("detail"),
     stats: document.getElementById("stats"),
+    recentWrap: document.getElementById("recentWrap"),
+    recentRow: document.getElementById("recentRow"),
   };
 
   function unique(values) {
@@ -57,8 +62,13 @@
       return true;
     }).sort((a, b) => b.year - a.year || a.session.localeCompare(b.session) || a.number - b.number);
 
+    const prevActive = activeId;
     if (!filtered.find(p => p.id === activeId)) {
       activeId = filtered[0]?.id || null;
+    }
+    if (activeId && activeId !== prevActive) {
+      touchRecent(activeId);
+      renderRecent();
     }
 
     renderList();
@@ -75,7 +85,9 @@
     `;
     div.onclick = () => {
       activeId = p.id;
+      touchRecent(p.id);
       renderList();
+      renderRecent();
       renderDetail();
     };
     return div;
@@ -85,6 +97,30 @@
     el.stats.textContent = `${filtered.length} / ${data.problems.length} problems`;
     el.list.innerHTML = "";
     filtered.forEach(p => el.list.appendChild(makeItem(p)));
+  }
+
+  function renderRecent() {
+    if (!el.recentRow || !el.recentWrap) return;
+    el.recentRow.innerHTML = "";
+    const validIds = recentIds.filter(id => data.problems.some(p => p.id === id));
+    if (!validIds.length) {
+      el.recentWrap.style.display = "none";
+      return;
+    }
+    el.recentWrap.style.display = "block";
+    validIds.forEach(id => {
+      const chip = document.createElement("button");
+      chip.className = "recent-chip";
+      chip.textContent = id;
+      chip.onclick = () => {
+        activeId = id;
+        touchRecent(id);
+        renderRecent();
+        renderList();
+        renderDetail();
+      };
+      el.recentRow.appendChild(chip);
+    });
   }
 
   function renderDetail() {
@@ -154,6 +190,8 @@
     if (!filtered.length) return;
     const clamped = Math.max(0, Math.min(filtered.length - 1, idx));
     activeId = filtered[clamped].id;
+    touchRecent(activeId);
+    renderRecent();
     renderList();
     renderDetail();
     const activeEl = el.list.querySelector(`.item[data-id="${activeId}"]`);
@@ -272,6 +310,28 @@
       .trim();
   }
 
+  function loadRecentIds() {
+    try {
+      const raw = localStorage.getItem(RECENT_KEY);
+      const parsed = JSON.parse(raw || "[]");
+      return Array.isArray(parsed) ? parsed.filter(x => typeof x === "string") : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function saveRecentIds() {
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(recentIds.slice(0, RECENT_MAX)));
+    } catch (_) {}
+  }
+
+  function touchRecent(id) {
+    if (!id) return;
+    recentIds = [id, ...recentIds.filter(x => x !== id)].slice(0, RECENT_MAX);
+    saveRecentIds();
+  }
+
   ["input", "change"].forEach(evt => {
     el.search.addEventListener(evt, applyFilters);
     el.year.addEventListener(evt, applyFilters);
@@ -282,5 +342,7 @@
 
   fillFilters();
   applyFilters();
+  if (activeId) touchRecent(activeId);
+  renderRecent();
   installKeyboardShortcuts();
 })();

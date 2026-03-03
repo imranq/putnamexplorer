@@ -48,6 +48,36 @@ input, select {
   font: inherit;
 }
 .toggle { display: inline-flex; align-items: center; gap: 8px; }
+.recent-wrap {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff9edcc;
+  padding: 10px;
+}
+.recent-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  opacity: .7;
+  margin-bottom: 6px;
+}
+.recent-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.recent-chip {
+  border: 1px solid #d7c8aa;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.recent-chip:hover { border-color: var(--accent); }
 
 .layout {
   display: grid;
