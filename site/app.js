@@ -19,6 +19,8 @@
     recentWrap: document.getElementById("recentWrap"),
     recentRow: document.getElementById("recentRow"),
     themeToggle: document.getElementById("themeToggle"),
+    mobileFiltersToggle: document.getElementById("mobileFiltersToggle"),
+    mobileProblemPicker: document.getElementById("mobileProblemPicker"),
   };
 
   function unique(values) {
@@ -74,6 +76,7 @@
     }
 
     renderList();
+    renderMobilePicker();
     renderDetail();
   }
 
@@ -90,7 +93,9 @@
       touchRecent(p.id);
       renderList();
       renderRecent();
+      renderMobilePicker();
       renderDetail();
+      if (isMobileViewport()) setMobileFiltersOpen(false);
     };
     return div;
   }
@@ -164,8 +169,10 @@
       </div>
       <div class="tex-block">${problemRendered}</div>
       ${hintItems ? `
-      <h3>Hints</h3>
-      <ol class="hint-list">${hintItems}</ol>
+      <details class="hints-wrap">
+        <summary>Show hints</summary>
+        <ol class="hint-list">${hintItems}</ol>
+      </details>
       ` : ""}
       <details class="solution-wrap">
         <summary>${p.solution_tex ? "Show solution" : "Solution unavailable"}</summary>
@@ -195,6 +202,7 @@
     touchRecent(activeId);
     renderRecent();
     renderList();
+    renderMobilePicker();
     renderDetail();
     const activeEl = el.list.querySelector(`.item[data-id="${activeId}"]`);
     if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
@@ -235,6 +243,56 @@
         toggleSolution();
       }
     });
+  }
+
+  function isMobileViewport() {
+    return window.matchMedia("(max-width: 900px)").matches;
+  }
+
+  function setMobileFiltersOpen(open) {
+    document.body.classList.toggle("mobile-filters-open", !!open);
+    if (el.mobileFiltersToggle) {
+      el.mobileFiltersToggle.textContent = open ? "✕ Close" : "☰ Filters";
+    }
+  }
+
+  function installMobileControls() {
+    if (!el.mobileFiltersToggle || !el.mobileProblemPicker) return;
+    el.mobileFiltersToggle.addEventListener("click", () => {
+      const isOpen = document.body.classList.contains("mobile-filters-open");
+      setMobileFiltersOpen(!isOpen);
+    });
+    setMobileFiltersOpen(false);
+  }
+
+  function renderMobilePicker() {
+    if (!el.mobileProblemPicker) return;
+    const picker = el.mobileProblemPicker;
+    const prev = picker.value;
+    picker.innerHTML = "";
+    if (!filtered.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No matching problems";
+      picker.appendChild(opt);
+      return;
+    }
+    filtered.forEach(p => {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = `${p.id} • ${p.topic || "Unlabeled"}`;
+      picker.appendChild(opt);
+    });
+    picker.value = activeId || prev || filtered[0].id;
+    picker.onchange = () => {
+      if (!picker.value) return;
+      activeId = picker.value;
+      touchRecent(activeId);
+      renderRecent();
+      renderList();
+      renderDetail();
+      if (isMobileViewport()) setMobileFiltersOpen(false);
+    };
   }
 
   function bindCopyActions(problem, problemBody, solutionBody) {
@@ -374,4 +432,6 @@
   renderRecent();
   installKeyboardShortcuts();
   installThemeToggle();
+  installMobileControls();
+  renderMobilePicker();
 })();

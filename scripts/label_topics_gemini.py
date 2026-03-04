@@ -274,6 +274,10 @@ def _extract_batch_state(status_resp: dict) -> str:
 
 def _extract_inlined_responses(batch_obj: dict):
     candidates = [
+        batch_obj.get("metadata", {}).get("output", {}).get("inlinedResponses", {}).get("inlinedResponses"),
+        batch_obj.get("metadata", {}).get("output", {}).get("inlined_responses", {}).get("inlined_responses"),
+        batch_obj.get("output", {}).get("inlinedResponses", {}).get("inlinedResponses"),
+        batch_obj.get("output", {}).get("inlined_responses", {}).get("inlined_responses"),
         batch_obj.get("dest", {}).get("inlinedResponses", {}).get("responses"),
         batch_obj.get("dest", {}).get("inlined_responses", {}).get("responses"),
         batch_obj.get("inlinedResponses", {}).get("responses"),
@@ -285,17 +289,42 @@ def _extract_inlined_responses(batch_obj: dict):
     return []
 
 
-def _extract_responses_file_name(batch_obj: dict):
+def _extract_responses_file_ref(batch_obj: dict):
     candidates = [
+        batch_obj.get("metadata", {}).get("output", {}).get("responsesFile", {}).get("name"),
+        batch_obj.get("metadata", {}).get("output", {}).get("responses_file", {}).get("name"),
+        batch_obj.get("metadata", {}).get("output", {}).get("responsesFile", {}).get("uri"),
+        batch_obj.get("metadata", {}).get("output", {}).get("responses_file", {}).get("uri"),
+        batch_obj.get("metadata", {}).get("output", {}).get("responsesFileUri"),
+        batch_obj.get("metadata", {}).get("output", {}).get("responses_file_uri"),
+        batch_obj.get("output", {}).get("responsesFile", {}).get("name"),
+        batch_obj.get("output", {}).get("responses_file", {}).get("name"),
+        batch_obj.get("output", {}).get("responsesFile", {}).get("uri"),
+        batch_obj.get("output", {}).get("responses_file", {}).get("uri"),
+        batch_obj.get("output", {}).get("responsesFileUri"),
+        batch_obj.get("output", {}).get("responses_file_uri"),
         batch_obj.get("dest", {}).get("responsesFile", {}).get("name"),
         batch_obj.get("dest", {}).get("responses_file", {}).get("name"),
+        batch_obj.get("dest", {}).get("responsesFile", {}).get("uri"),
+        batch_obj.get("dest", {}).get("responses_file", {}).get("uri"),
         batch_obj.get("responsesFile", {}).get("name"),
         batch_obj.get("responses_file", {}).get("name"),
+        batch_obj.get("responsesFile", {}).get("uri"),
+        batch_obj.get("responses_file", {}).get("uri"),
     ]
     for c in candidates:
         if isinstance(c, str) and c:
             return c
     return None
+
+
+def download_batch_output(api_key: str, file_ref: str) -> bytes:
+    if file_ref.startswith("files/"):
+        return download_batch_file(api_key, file_ref)
+    if file_ref.startswith("http://") or file_ref.startswith("https://"):
+        return _request_bytes("GET", file_ref, api_key)
+    # Unknown ref shape; attempt as file name anyway.
+    return download_batch_file(api_key, file_ref)
 
 
 def _extract_item_key(item: dict, fallback_idx: int) -> str:
@@ -316,6 +345,95 @@ def _extract_item_response(item: dict):
     if isinstance(item.get("generateContentResponse"), dict):
         return item["generateContentResponse"]
     return item
+
+
+def _extract_batch_progress(status_resp: dict) -> dict:
+    """
+    Best-effort extraction across possible response shapes.
+    """
+    batch_obj = _extract_batch_obj(status_resp)
+
+    candidates = []
+    for root in (status_resp, batch_obj):
+        if isinstance(root, dict):
+            candidates.append(root.get("metadata"))
+            candidates.append(root.get("batchStats"))
+            candidates.append(root.get("batch_stats"))
+            candidates.append(root.get("stats"))
+            md = root.get("metadata")
+            if isinstance(md, dict):
+                candidates.append(md.get("batchStats"))
+                candidates.append(md.get("batch_stats"))
+                candidates.append(md.get("stats"))
+
+    completed = failed = running = pending = total = None
+    key_sets = [
+        ("completedRequests", "failedRequests", "runningRequests", "pendingRequests", "totalRequests"),
+        ("completed_requests", "failed_requests", "running_requests", "pending_requests", "total_requests"),
+        ("completed", "failed", "running", "pending", "total"),
+    ]
+
+    def _as_int(v):
+        try:
+            return int(v)
+        except Exception:
+            return None
+
+    for cand in candidates:
+        if not isinstance(cand, dict):
+            continue
+        for ck, fk, rk, pk, tk in key_sets:
+            c = _as_int(cand.get(ck))
+            f = _as_int(cand.get(fk))
+            r = _as_int(cand.get(rk))
+            p = _as_int(cand.get(pk))
+            t = _as_int(cand.get(tk))
+            if any(v is not None for v in (c, f, r, p, t)):
+                if completed is None:
+                    completed = c
+                if failed is None:
+                    failed = f
+                if running is None:
+                    running = r
+                if pending is None:
+                    pending = p
+                if total is None:
+                    total = t
+
+    if total is None:
+        # Fallback: infer total from known counts if possible.
+        parts = [x for x in (completed, failed, running, pending) if isinstance(x, int)]
+        if len(parts) >= 2:
+            total = sum(parts)
+
+    return {
+        "completed": completed,
+        "failed": failed,
+        "running": running,
+        "pending": pending,
+        "total": total,
+    }
+
+
+def _format_progress(progress: dict) -> str:
+    c = progress.get("completed")
+    f = progress.get("failed")
+    r = progress.get("running")
+    p = progress.get("pending")
+    t = progress.get("total")
+
+    chunks = []
+    if c is not None and t is not None:
+        chunks.append(f"completed={c}/{t}")
+    elif c is not None:
+        chunks.append(f"completed={c}")
+    if f is not None:
+        chunks.append(f"failed={f}")
+    if r is not None:
+        chunks.append(f"running={r}")
+    if p is not None:
+        chunks.append(f"pending={p}")
+    return ", ".join(chunks)
 
 
 def append_jsonl(path: Path, obj: dict):
@@ -598,16 +716,45 @@ def main():
             status = get_batch_job(api_key, batch_name)
             while True:
                 state = _extract_batch_state(status).upper()
-                if state in {"SUCCEEDED", "JOB_STATE_SUCCEEDED", "DONE"}:
+                progress = _extract_batch_progress(status)
+                progress_str = _format_progress(progress)
+                if state in {
+                    "SUCCEEDED",
+                    "JOB_STATE_SUCCEEDED",
+                    "BATCH_STATE_SUCCEEDED",
+                    "DONE",
+                }:
                     break
-                if state in {"FAILED", "CANCELLED", "JOB_STATE_FAILED", "JOB_STATE_CANCELLED"}:
+                if state in {
+                    "FAILED",
+                    "CANCELLED",
+                    "JOB_STATE_FAILED",
+                    "JOB_STATE_CANCELLED",
+                    "BATCH_STATE_FAILED",
+                    "BATCH_STATE_CANCELLED",
+                }:
                     break
-                print(f"[BATCH {i}] state={state}; sleeping {args.poll_interval:.1f}s")
+                if progress_str:
+                    print(f"[BATCH {i}] state={state}; {progress_str}; sleeping {args.poll_interval:.1f}s")
+                else:
+                    print(f"[BATCH {i}] state={state}; sleeping {args.poll_interval:.1f}s")
                 time.sleep(args.poll_interval)
                 status = get_batch_job(api_key, batch_name)
 
             final_state = _extract_batch_state(status).upper()
-            if final_state in {"FAILED", "CANCELLED", "JOB_STATE_FAILED", "JOB_STATE_CANCELLED"}:
+            final_progress = _format_progress(_extract_batch_progress(status))
+            if final_progress:
+                print(f"[BATCH {i}] final state={final_state}; {final_progress}")
+            else:
+                print(f"[BATCH {i}] final state={final_state}")
+            if final_state in {
+                "FAILED",
+                "CANCELLED",
+                "JOB_STATE_FAILED",
+                "JOB_STATE_CANCELLED",
+                "BATCH_STATE_FAILED",
+                "BATCH_STATE_CANCELLED",
+            }:
                 failures += len(chunk)
                 append_jsonl(
                     failures_log,
@@ -625,9 +772,9 @@ def main():
             batch_obj = _extract_batch_obj(status)
             items = _extract_inlined_responses(batch_obj)
             if not items:
-                file_name = _extract_responses_file_name(batch_obj)
-                if file_name:
-                    raw_bytes = download_batch_file(api_key, file_name)
+                file_ref = _extract_responses_file_ref(batch_obj)
+                if file_ref:
+                    raw_bytes = download_batch_output(api_key, file_ref)
                     lines = raw_bytes.decode("utf-8", errors="ignore").splitlines()
                     parsed_lines = []
                     for ln in lines:
