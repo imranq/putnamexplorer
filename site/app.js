@@ -1,6 +1,7 @@
 (() => {
   const data = window.PUTNAM_DATA || { problems: [] };
   const RECENT_KEY = "putnam_recent_ids_v1";
+  const THEME_KEY = "putnam_theme_v1";
   const RECENT_MAX = 16;
   let filtered = data.problems.slice().sort((a, b) => b.year - a.year || a.session.localeCompare(b.session) || a.number - b.number);
   let activeId = null;
@@ -17,6 +18,7 @@
     stats: document.getElementById("stats"),
     recentWrap: document.getElementById("recentWrap"),
     recentRow: document.getElementById("recentRow"),
+    themeToggle: document.getElementById("themeToggle"),
   };
 
   function unique(values) {
@@ -332,6 +334,32 @@
     saveRecentIds();
   }
 
+  function getTheme() {
+    return document.documentElement.getAttribute("data-theme") || "light";
+  }
+
+  function setTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch (_) {}
+    if (el.themeToggle) {
+      const nextTheme = theme === "dark" ? "light" : "dark";
+      el.themeToggle.textContent = theme === "dark" ? "☀" : "☾";
+      el.themeToggle.title = `Switch to ${nextTheme} mode`;
+      el.themeToggle.setAttribute("aria-label", `Switch to ${nextTheme} mode`);
+    }
+  }
+
+  function installThemeToggle() {
+    if (!el.themeToggle) return;
+    setTheme(getTheme());
+    el.themeToggle.addEventListener("click", () => {
+      const next = getTheme() === "dark" ? "light" : "dark";
+      setTheme(next);
+    });
+  }
+
   ["input", "change"].forEach(evt => {
     el.search.addEventListener(evt, applyFilters);
     el.year.addEventListener(evt, applyFilters);
@@ -345,4 +373,5 @@
   if (activeId) touchRecent(activeId);
   renderRecent();
   installKeyboardShortcuts();
+  installThemeToggle();
 })();

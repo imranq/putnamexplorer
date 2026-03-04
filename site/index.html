@@ -4,6 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Putnam Problem Browser</title>
+  <script>
+    (function () {
+      const saved = localStorage.getItem("putnam_theme_v1");
+      const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const theme = saved || (prefersDark ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,6 +34,7 @@
 <body>
   <div class="bg-orb orb-a"></div>
   <div class="bg-orb orb-b"></div>
+  <button id="themeToggle" class="theme-fab" type="button" title="Toggle theme" aria-label="Toggle theme">☾</button>
 
   <main class="container">
     <header class="hero">

@@ -1,61 +1,88 @@
-# Putnam Explorer
+# Putnam Explorer Toolkit
 
-A local-first Putnam problem explorer with:
+This folder contains:
 
-- Full archive ingestion (`1985..2025`) from `https://kskedlaya.org/putnam-archive/`
-- Searchable browser by year/section/topic/keyword
-- Collapsed-by-default solutions
-- Copy actions (problem, solution, both)
-- Keyboard navigation (`j/k`, `/`, `s`)
-- Recently viewed row (persistent in local storage)
-- LLM metadata labeling pipeline (Gemini)
+- Bulk downloader for Putnam problems and solutions TeX from `https://kskedlaya.org/putnam-archive/`
+- Parser/indexer that builds a single JSON dataset
+- Searchable web UI to browse by year/section/topic and open full TeX
+- Gemini labeling script to classify each problem with rich metadata
 
-## Project Structure
-
-- `putnam_archive/`: main app + data pipeline
-- `putnam_archive/site/`: static web UI
-- `putnam_archive/scripts/`: download, build, label, publish scripts
-- `next.md`: product roadmap and feature backlog
-
-## Quick Start
+## 1) Download all TeX files
 
 ```bash
-# from repo root
-python3 putnam_archive/scripts/build_dataset.py
-cd putnam_archive
+bash scripts/download_putnam_tex.sh
+```
+
+Defaults to years `1985..2025` and stores files in:
+
+- `data/raw/problems`
+- `data/raw/solutions`
+
+## 2) Build dataset for web app
+
+```bash
+python3 scripts/build_dataset.py
+```
+
+Outputs:
+
+- `data/processed/problems.json`
+- `site/problems.js`
+
+By default, this uses `pandoc` (if installed) to also generate `problem_html`/`solution_html` for cleaner rendering.
+Disable that with:
+
+```bash
+python3 scripts/build_dataset.py --no-pandoc
+```
+
+## 3) Run the searchable site
+
+```bash
+cd site
 python3 -m http.server 8080
 ```
 
-Open `http://localhost:8080`.
+Then open `http://localhost:8080`.
 
-## Rebuild Everything
+## 4) Label problems with Gemini
 
-```bash
-bash putnam_archive/scripts/rebuild_all.sh
-```
-
-## Label Metadata with Gemini
+Set API key:
 
 ```bash
-export GEMINI_API_KEY='YOUR_KEY'
-python3 putnam_archive/scripts/label_topics_gemini.py \
-  --input putnam_archive/data/processed/problems.json \
-  --output putnam_archive/data/processed/problems.labeled.json \
-  --model gemini-2.0-flash-lite \
-  --force
-
-python3 putnam_archive/scripts/publish_site_data.py \
-  --input putnam_archive/data/processed/problems.labeled.json
+export GEMINI_API_KEY='YOUR_KEY_HERE'
 ```
 
-## Keyboard Shortcuts
+Run labeling:
 
-- `j`: next problem
-- `k`: previous problem
-- `/`: focus search
-- `s`: toggle solution panel
+```bash
+python3 scripts/label_topics_gemini.py \
+  --input data/processed/problems.json \
+  --output data/processed/problems.labeled.json \
+  --model gemini-3.1-flash-lite-preview \
+  --mode batch
+```
+
+Metadata produced per problem includes:
+
+- `topic`, `secondary_topics`, `difficulty`, `topic_confidence`
+- `problem_type`, `answer_format`
+- `techniques`, `concepts`, `prerequisites`, `theorems`, `keywords`
+- `estimated_solve_time_minutes`
+- `requires_casework`, `requires_construction`, `uses_symmetry`, `is_multi_part`
+- `difficulty_reason`
+- `hints` (progressive) plus `hint_1`, `hint_2`, `hint_3`
+
+Publish labeled data to site:
+
+```bash
+python3 scripts/publish_site_data.py \
+  --input data/processed/problems.labeled.json \
+  --site-data site/problems.js
+```
 
 ## Notes
 
-- Pandoc rendering is enabled by default during dataset build (if `pandoc` is installed).
-- Some early years do not include official TeX solutions in the source archive.
+- Some early years do not have official solution TeX in the archive; those entries remain available as problem-only.
+- You can rerun the downloader safely; existing files are overwritten.
+- Labeling logs are saved per run under `logs/label_runs/<RUN_ID>/`.
