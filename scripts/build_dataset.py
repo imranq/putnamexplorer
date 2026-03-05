@@ -78,9 +78,9 @@ def load_tex_items(path: Path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--raw-dir", default="putnam_archive/data/raw")
-    parser.add_argument("--out", default="putnam_archive/data/processed/problems.json")
-    parser.add_argument("--site-data", default="putnam_archive/site/problems.js")
+    parser.add_argument("--raw-dir", default="data/raw")
+    parser.add_argument("--out", default="data/processed/problems.json")
+    parser.add_argument("--site-data", default="site/problems.js")
     parser.add_argument("--no-pandoc", action="store_true")
     args = parser.parse_args()
     use_pandoc = not args.no_pandoc
