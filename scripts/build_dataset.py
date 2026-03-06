@@ -13,6 +13,29 @@ CMD_RE = re.compile(r"\\[a-zA-Z*]+")
 BRACE_CMD_RE = re.compile(r"\\[a-zA-Z*]+\{([^{}]*)\}")
 WS_RE = re.compile(r"\s+")
 HAS_PANDOC = shutil.which("pandoc") is not None
+LABEL_KEYS = [
+    "topic",
+    "secondary_topics",
+    "difficulty",
+    "topic_confidence",
+    "problem_type",
+    "answer_format",
+    "techniques",
+    "concepts",
+    "prerequisites",
+    "theorems",
+    "keywords",
+    "estimated_solve_time_minutes",
+    "requires_casework",
+    "requires_construction",
+    "uses_symmetry",
+    "is_multi_part",
+    "difficulty_reason",
+    "hints",
+    "hint_1",
+    "hint_2",
+    "hint_3",
+]
 
 
 def normalize_tex(text: str) -> str:
@@ -56,14 +79,31 @@ def canonicalize_label(label: str):
 
 
 def extract_items(tex: str):
+    # Restrict extraction to the main list region when possible, while
+    # supporting historical format variations.
+    start_candidates = [tex.find("\\begin{itemize}"), tex.find("\\item[")]
+    start_candidates = [x for x in start_candidates if x != -1]
+    if start_candidates:
+        tex = tex[min(start_candidates) :]
+
+    # Do not trim on \\end{enumerate}; many problems contain inner enumerate
+    # blocks and trimming there would truncate the whole year file.
+    outer_itemize_end = tex.rfind("\\end{itemize}")
+    doc_end = tex.find("\\end{document}")
+    end_candidates = [x for x in [outer_itemize_end, doc_end] if x != -1]
+    if end_candidates:
+        tex = tex[: min(end_candidates)]
+
     items = []
-    matches = list(ITEM_RE.finditer(tex))
-    for i, m in enumerate(matches):
+    canon_matches = []
+    for m in ITEM_RE.finditer(tex):
         code = canonicalize_label(m.group(1))
-        if not code:
-            continue
+        if code:
+            canon_matches.append((m, code))
+
+    for i, (m, code) in enumerate(canon_matches):
         start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(tex)
+        end = canon_matches[i + 1][0].start() if i + 1 < len(canon_matches) else len(tex)
         body = tex[start:end].strip()
         items.append((code, body))
     return items
@@ -81,6 +121,7 @@ def main():
     parser.add_argument("--raw-dir", default="data/raw")
     parser.add_argument("--out", default="data/processed/problems.json")
     parser.add_argument("--site-data", default="site/problems.js")
+    parser.add_argument("--labels-from", default="data/processed/problems.labeled.json")
     parser.add_argument("--no-pandoc", action="store_true")
     args = parser.parse_args()
     use_pandoc = not args.no_pandoc
@@ -145,6 +186,24 @@ def main():
                 )
 
     records.sort(key=lambda r: (r["year"], r["session"], r["number"]))
+
+    labels_path = Path(args.labels_from)
+    merged_labels = 0
+    if labels_path.exists():
+        labeled_payload = json.loads(labels_path.read_text(encoding="utf-8"))
+        labels_by_id = {r.get("id"): r for r in labeled_payload.get("problems", [])}
+        for rec in records:
+            src = labels_by_id.get(rec["id"])
+            if not src:
+                continue
+            touched = False
+            for k in LABEL_KEYS:
+                if k in src:
+                    rec[k] = src[k]
+                    touched = True
+            if touched:
+                merged_labels += 1
+
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "count": len(records),
@@ -162,6 +221,8 @@ def main():
 
     print(f"Wrote {payload['count']} problems to {out_path}")
     print(f"Wrote site data to {site_data_path}")
+    if labels_path.exists():
+        print(f"Merged labels for {merged_labels} problems from {labels_path}")
 
 
 if __name__ == "__main__":
